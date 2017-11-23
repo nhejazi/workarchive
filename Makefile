@@ -4,7 +4,7 @@ TARGET = nhejazi@arwen.berkeley.edu:/mirror/data/pub/users/nhejazi
 .PHONY : get
 
 get :
-	for DIR in $(DIRS); do rsync -aP $(TARGET)/$$DIR .; done
+	for DIR in $(DIRS); do rsync -auvP $(TARGET)/$$DIR .; done
 
 put :
 	rsync -r --chmod=go+r $(DIRS) $(TARGET)
