@@ -1,0 +1,463 @@
+---
+title: "Targeted Biomarker Discovery"
+subtitle: "Biostatistics Admit Day"
+author: "[Nima Hejazi](http://nimahejazi.org)"
+date: "20 March 2017"
+output:
+  xaringan::moon_reader:
+    lib_dir: libs
+    chakra: libs/remark-latest.min.js
+    css: ["default", "custom.css"]
+    nature:
+      highlightStyle: zenburn
+      highlightLines: true
+---
+
+```{r knitr_setup, echo=FALSE, message=FALSE}
+knitr::opts_chunk$set(fig.width = 7, fig.height = 4.5,
+					  dpi = 300, fig.cap = "", fig.align = "center")
+showtext::showtext.opts(dpi = 300)
+```
+
+# Accessing these slides
+
+--
+
+### View online:
+[goo.gl/HZzosu](https://goo.gl/HZzosu)
+
+--
+
+### Via git:
+
+```{bash, eval=FALSE}
+git clone https://github.com/nhejazi/talk_admitday.git
+```
+
+???
+
+- This talk will focus on challenges in analyzing high-dimensional biological
+data, with a brief introduction to common problems.
+
+- We will look at how standard approaches from statistical causal inference
+(esp., _Targeted Learning_) can be extended to this class of data.
+
+---
+class: inverse, center, middle
+
+# Statistics in High-Dimensional Biology
+
+---
+
+# Biological Sequencing I
+
+## Why?
+
+--
+
+- We can probe biological and health processes at a very fine level.
+
+--
+
+- Learn more about the molecular basis of health and disease.
+
+--
+
+- Querying different genomic processes:
+  1. DNA/RNA expression
+  2. Protein expression
+  3. Epigenetics (e.g., DNA methylation)
+
+???
+
+- We are involved in research with health applications and the creation of
+biological domain knowledge.
+
+- Of the list given, the top 2 together comprise the "central dogma of molecular
+biology."
+
+- There's a fascinating array of processes to be studied and much room for
+statistical innovation.
+
+---
+
+# Biological Sequencing II
+
+## Who?
+
+--
+
+- Experimental scientists in
+  1. environmental epidemiology
+  2. molecular biology
+  3. bioengineering
+  4. neuroscience
+
+???
+
+- From the diversity of research areas, you're sure to find something
+interesting to work on.
+
+- Just a list I came up with off the top of my head...before my morning coffee.
+
+---
+
+# Biological Sequencing III
+
+## How?
+
+--
+
+- (some) Popular biotechnology:
+  1. Microarrays (genes, CpG sites, etc.)
+  2. RNA-Seq
+  3. Single-Cell RNA-Seq
+
+???
+
+- There are numerous challenges in analyzing such data sets.
+
+- High-dimensional? personally, $n \in (4, 125)$, $g \in (10000, 850000)$.
+
+---
+
+# Biological Sequencing Data
+
+Conventions differ in genomics:
+
+$\begin{bmatrix} x_{11} & x_{12} & x_{13} & \dots & x_{1g} \\ x_{21} & x_{22} & x_{23} & \dots & x_{2g} \\ \vdots & \vdots & \vdots & \ddots & \vdots \\ x_{n1} & x_{n2} & x_{n3} & \dots & x_{ng} \end{bmatrix} \xrightarrow[]{\text{transpose}} \begin{bmatrix} x_{11} & x_{12} & x_{13} & \dots & x_{1n} \\ x_{21} & x_{22} & x_{23} & \dots & x_{2n} \\ \vdots & \vdots & \vdots & \ddots & \vdots \\ x_{g1} & x_{g2} & x_{g3} & \dots & x_{gn} \end{bmatrix}$
+
+__n.b.__, $n << g$
+
+--
+
+- standard practice: _subjects in rows, variables in columns_
+
+--
+
+- genomics: _genes in rows, subjects in columns_
+
+--
+
+- Why this awful convention? 
+
+--
+
+- Thanks, Microsoft (Excel)...the root of all evil (in data science).
+
+--
+
+- "Doing data science with spreadsheets is like drunk driving."
+
+???
+
+- This threw me off when first starting to work in this area.
+
+- We'd like to make claims about the genes, so why are they in the rows? Excel.
+
+- Quote from podcast ("Not so standard deviations"), originally P.B. Stark.
+
+---
+
+# Targeted Learning
+
+- A framework for causal inference and variable importance analysis.
+
+--
+
+- Let's represent observed data as $O = (W, A, Y)$
+
+--
+
+- $W$: baseline variables (e.g., age, sex, SES)
+
+
+--
+
+- $A$: exposure/treatment (e.g., benzene)
+
+--
+
+- $Y$: outcome of interest (e.g., gene expression)
+
+--
+
+- __goal:__ Estimate the effect of a treatment (A) on an outcome (Y) while
+controlling for baseline covariates (W)
+
+--
+
+- Target parameters like the "average treatment effect" (ATE):
+
+$$\Psi(P_n^*) = E[E[Y \mid A = 1, W] - E[Y \mid A = 0, W]]$$
+
+???
+
+- All of this is covered in a series of 1st-year courses.
+
+- Significant area of research in our department (M. van der Laan, A. Hubbard,
+M. Petersen).
+
+---
+
+# R package: `biotmle`
+
+- What does this package do?
+
+--
+
+_Biomarker identification, combining targeted learning with moderated (empirical
+Bayes) statistics to obtain conservative, robust estimates, with inference._
+
+--
+
+- Moderated statistics and targeted learning:
+
+$$\tilde{t}_b = \frac{\sqrt{n}(\Psi_b(P_n^*) - \Psi_b(P_0))}{\tilde{S}_b}$$
+--
+
+```{r, eval=FALSE}
+library(devtools)
+devtools::install_github("nhejazi/biotmle")
+```
+
+--
+
+```{r}
+library(biotmle)
+data(illuminaData)
+```
+
+```{r, echo=FALSE}
+library(dplyr)
+"%ni%" = Negate("%in%")
+subjIDs <- illuminaData$id
+```
+
+???
+
+- A working implementation of a targeted learning approach to biomarker
+discovery using moderated statistics.
+
+- Next, we'll walk through analyzing some data.
+
+---
+class: inverse, middle, center
+
+# Data Analysis with `biotmle`
+
+---
+
+# Baseline covariates (W)
+
+```{r}
+# W - age, sex, smoking
+W <- illuminaData %>%
+  dplyr::select(which(colnames(.) %in% c("age", "sex", "smoking"))) %>%
+  dplyr::mutate(
+    age = as.numeric((age > quantile(age, 0.25))),
+    sex = I(sex),
+    smoking = I(smoking)
+  )
+```
+
+--
+
+```{r}
+head(W)
+```
+
+???
+
+- Our department revolves around using R. You're more than welcome to use
+whatever programming language you'd like, but you'll have to learn R if you want
+to communicate and collaborate.
+
+- Probably wouldn't hurt to start learning now, if you don't know it already.
+
+---
+
+# Exposure of interest (A)
+
+```{r}
+# A - benzene exposure (discretized)
+A <- illuminaData %>%
+  dplyr::select(which(colnames(.) %in% c("benzene")))
+A <- A[, 1]
+```
+
+--
+
+```{r}
+unique(A)
+```
+
+--
+
+```{r}
+table(A)
+```
+
+???
+
+- We discretize the exposure/treatment to make it fit the form of the parameter
+that we saw before (the ATE).
+
+- Decent distribution of observations across the levels of A (though there are
+fewer individuals in the highest exposure level).
+
+---
+
+# Outcome of interest (Y)
+
+```{r}
+# Y - genes
+Y <- illuminaData %>%
+  dplyr::select(which(colnames(.) %ni% c("age", "sex", "smoking", "benzene",
+                                         "id")))
+geneIDs <- colnames(Y)
+```
+
+--
+
+```{r}
+dim(Y)
+```
+
+--
+
+```{r}
+head(Y[, 1:7])
+```
+
+???
+
+- Woah, look at that dimensionality!
+
+- Expression measures (from microarrays) appear arbitrary.
+
+---
+
+# Identifying biomarkers
+
+We can use the package to identify potential biomarkers:
+
+```{r eval=FALSE}
+biomarkerTMLEout <- biomarkertmle(Y = Y, # biomarkers
+                                  W = W, # baseline covariates
+                                  A = A, # exposure (benzene)
+                                  type = "exposure",
+                                  parallel = TRUE,
+                                  family = "gaussian",
+                                  g_lib = c("SL.glmnet", "SL.randomForest",
+                                            "SL.polymars", "SL.mean"),
+                                  Q_lib = c("SL.glmnet", "SL.randomForest",
+                                            "SL.nnet", "SL.mean")
+                                 )
+```
+
+```{r, echo=FALSE}
+data(biomarkertmleOut)
+```
+
+--
+
+```{r}
+design <- as.data.frame(cbind(rep(1, nrow(Y)),
+                              as.numeric(A == max(unique(A)))))
+colnames(design) <- c("intercept", "Tx")
+limmaTMLEout <- limmatmle(biotmle = biomarkerTMLEout, IDs = NULL,
+                          designMat = design)
+```
+
+???
+
+- The procedure is quite resource-intensive as it evaluates the association of
+each potential biomarker (over $20,000$) with the exposure of interest A
+
+- ...while accounting for potential confounding based on the covariates included
+in W
+
+---
+class: inverse, middle, center
+
+# Visualizing results (from `biotmle`)
+
+---
+
+# Unadjusted results from tests
+
+```{r, echo=FALSE}
+plot(x = limmaTMLEout, type = "pvals_raw")
+```
+
+???
+
+- still find a large number of biomarkers
+
+---
+
+# Adjusted results from tests
+
+```{r, echo=FALSE}
+plot(x = limmaTMLEout, type = "pvals_adj")
+```
+
+???
+
+- multiple testing correction (FDR control)
+
+- account for simultaneous tests
+
+---
+
+# Visualization I: Volcano Plot
+
+```{r, echo=FALSE}
+volcano_biotmle(biotmle = limmaTMLEout)
+```
+
+???
+
+- volcano plots are pretty standard
+
+- our goal was to reduce the number of significant findings at a low fold change
+in the parameter of interest. It appears that we were successful.
+
+---
+
+# Visualization II: Heatmap
+
+```{r, echo=FALSE}
+heatmap_biotmle(x = limmaTMLEout, left.label.text.size = 2, designMat = design,
+                FDRcutoff = 0.05, top = 25)
+```
+
+---
+class: center, middle
+
+# Thanks!
+
+Slides created via the R package
+[**xaringan**](https://github.com/yihui/xaringan).
+
+Powered by [remark.js](https://remarkjs.com),
+[**knitr**](http://yihui.name/knitr), and
+[R Markdown](https://rmarkdown.rstudio.com).
+
+---
+class: center, middle
+
+# Me
+
+slides: [goo.gl/HZzosu](https://goo.gl/HZzosu)
+
+[nimahejazi.org](http://nimahejazi.org)
+
+[stat.berkeley.edu/~nhejazi](https://www.stat.berkeley.edu/~nhejazi)
+
+_email:_ nhejazi -AT- berkeley -DOT- edu
+
+_twitter:_ [@nshejazi](https://twitter.com/nshejazi)
+
+_GitHub:_ [nhejazi](https://github.com/nhejazi)
