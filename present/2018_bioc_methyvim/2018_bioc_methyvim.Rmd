@@ -1,0 +1,453 @@
+---
+title: "Data-Adaptive Estimation and Inference for Differential Methylation Analysis"
+subtitle: "The _`methyvim`_ R Package"
+author: "[Nima S. Hejazi](https://statistics.berkeley.edu/~nhejazi) | Twitter: [nshejazi](https://twitter.com/nshejazi)"
+institution: "University of California, Berkeley"
+date: "`r lubridate::round_date(lubridate::now(), unit = 'minute')`"
+bibliography: references.bib
+output:
+  xaringan::moon_reader:
+    lib_dir: libs
+    css: xaringan-themer.css
+    nature:
+      highlightStyle: github
+      highlightLines: true
+      countIncrementalSlides: false
+      navigation: {
+        scroll: false
+      }
+---
+
+```{r knitr_setup, echo=FALSE, message=FALSE}
+knitr::opts_chunk$set(fig.width = 7, fig.height = 4.5, dpi = 300,
+                      fig.cap = "", fig.align = "center")
+showtext::showtext_opts(dpi = 300)
+```
+
+```{r optoins_setup, include=FALSE}
+options(htmltools.dir.version = FALSE)
+options(scipen = 999)
+```
+
+```{r xaringan-themer, include = FALSE}
+library(xaringanthemer)
+solarized_light(
+  #base_color = "#1c5253",
+  header_font_google = google_font("Josefin Sans"),
+  text_font_google = google_font("Montserrat", "300", "300i"),
+  code_font_google = google_font("Droid Mono")
+)
+```
+
+```{r refmanager, load_refs, echo=FALSE, cache=FALSE}
+library(RefManageR)
+BibOptions(check.entries = FALSE,
+           bib.style = "authoryear",
+           first.inits = TRUE,
+           dashed = TRUE,
+           max.names = 3,
+           cite.style = 'alphabetic',
+           style = "markdown",
+           hyperlink = FALSE,
+           dashed = FALSE)
+methyvim_bib <- ReadBib("./references.bib", check = FALSE)
+NoCite(methyvim_bib)
+```
+
+# Preview: Summary
+
+* __Slides:__ https://bit.ly/bioc_methyvim_2018
+
+* DNA methylation data is  high-dimensional -- we can collect data on 850K
+  genomic sites with modern arrays! (Even more with RRBS, etc.)
+
+* Normalization and QC are critical components of properly analyzing
+  modern DNA methylation data. There are many choices of technique.
+
+* A relative scarcity of techniques for estimation and inference exists
+  -- analyses are often limited to applications of the general linear model.
+
+* What if we draw on causal inference, combined with machine learning, to
+  flexibly construct answers to richer scientific questions?
+
+???
+
+- This slide deck is for a brief (10-15 minute) talk on a recently developed
+   statistical methodology for using data-adaptive estimates of nonparametric
+   variable importance measures for differential methylation analysis. This talk
+   was most recently given at [BioC 2018](https://bioc2018.bioconductor.org),
+   the annual meeting of the [Bioconductor project](https://bioconductor.org),
+   in Toronto, ON, Canada, in July 2018.
+
+- We'll go over this summary again at the end of the talk. Hopefully, it will
+  all make more sense then.
+
+---
+
+# Let's meet the data
+
+* Observational study of the impact of disease state on DNA methylation:
+
+  1. $n = 216$ subjects;
+
+  2. Binary disease status (A): Fetal Alcohol Spectrum Disorders;
+
+  3. Potential phenotype-level confounders (W): sex, age, etc.;
+
+  4. $\sim 850,000$ CpG sites interrogated (Illumina _Infinium MethylationEPIC
+     BeadChip_ assay technology)
+
+* __Questions__: How, if at all, does disease status affect differential
+  methylation? Is a coherent biomarker-type signature detectable?
+
+???
+
+* We're interested in exposing/understanding a potential mechanistic interplay
+  between disease status and DNA methylation.
+
+* In particular, we'd like to construct some kind of importance score for
+  CpG sites impacted by the exposure/disease of interest.
+
+* Dimensionality is a problem, c.f., RNA-seq analyses are $\sim 30,000$ in
+  dimension at the gene level.
+
+---
+
+# Data Analysis?
+
+* __First pass:__ For each CpG site $g = 1, \ldots, G$, fit a linear model:
+  $$\mathbb{E}[y_g] = X \beta_g$$
+
+* Test the coefficient of interest using a standard (or moderated) t-test:
+  $$t_{g} = \frac{\hat{\beta}_{g} - \beta_{g, H_0}}{s_g}$$
+
+* Convenience models: does $\hat{\beta}_{g}$ answer our scientific questions?
+  What about the various assumptions?
+
+* Modern biotechnology, so why not use modern statistics?
+
+  1. Machine learning? `r emo::ji('thinking')`
+
+  2. Statistical inference?
+
+???
+
+* CpG sites are thought to function in groups. Treating them as acting
+  independently is _not_ faithful to the underlying biology.
+
+* The linear model is a great starting point for analyses when the data is
+  generated using complex technology -- no need to make the analysis more
+  complicated, at least for a first pass.
+
+* That being said, the data is difficult and expensive to collect, so why
+  restrict the scope of the questions we'd like to ask.
+
+---
+
+# Science Before Statistics
+
+* __Question:__ What is the effect of disease status on DNA methylation at a
+  CpG site of interest, considering its neighboring sites.
+
+* Treating CpG sites as acting independently is _not_ faithful to the underlying
+  biology.
+
+* We should take into account the methylation status of neighboring CpG sites
+  when assessing differential methylation at a single site.
+
+???
+
+* The estimation procedure should control for the observed methylation status of
+  the neighbors of the given CpG site?
+
+---
+
+# A Data-Adaptive Approach
+
+1. Isolate a subset of CpG sites for which there is cursory evidence of
+   differential methylation.
+
+2. Assign CpG sites into neighborhoods (e.g., base pair distance). If there are
+   many neighbors, apply clustering (e.g., _PAM_) to select a subset.
+
+3. Estimate a _variable importance measure_ (VIM) at each CpG site, with disease
+   as intervention $A$ and controlling for neighboring CpG sites $W$.
+
+4. Apply a variant of the Benjamini & Hochberg procedure to control FDR even when
+   initial screening is applied.
+
+???
+
+* Pre-screening is a critical step since we cannot perform computationally
+  intensive estimation on all the sites. This is flexible -- just use your
+  favorite method (as long as allows a ranking to be made).
+
+* The variable importance step merely comes down to the creation of a score. We
+  use TMLE to statistically estimate target parameters from causal models. The
+  procedure is general enough to accommodate any inferential technique.
+
+---
+
+# Pre-Screening
+
+* The estimation procedure is computationally intensive -- apply it only
+  to sites that appear promising.
+
+* Consider estimating univariate (linear) regressions of intervention on
+  CpG methylation status. Why? Fast and easy.
+
+* Select CpG sites with a marginal p-value (of $\beta$) below, say, $0.01$.
+  Apply the remainder of the algorithm to this subset.
+
+* Modeling assumptions irrelevant: this is not the statistical model we will use
+  for inference.
+
+???
+
+* Software implementation is open source and easily extensible -- can use any
+  algorithm you like for filtering.
+
+* We'll be adding to the available routines for pre-screening too! For now, we
+  have [`limma`](https://bioconductor.org/packages/limma).
+
+---
+
+# Too many neighbors?
+
+* Limited sample sizes but many neighbors, can't control for everything...
+
+* __Solution:__ Choose the most representative set of neighboring sites.
+
+* Generate a limited set of clusters and choose the CpG sites at the center of
+  these clusters as representative of the set of neighbors.
+
+* For convenience, we use PAM: <u>P</u>artitioning <u>A</u>round <u>M</u>edoids.
+
+* Nihilistic much? <u>An Impossibility Theorem for Clustering</u> (NIPS 2002).
+
+* This is an _optional_ step -- only applied when set of neighbors is large.
+
+
+???
+
+* The number of sites that we can control for is roughly a function of
+  sample size. This impacts the definition of the parameter that we estimate,
+  and allows enough flexibility to obtain either very local or more regional
+  estimates.
+
+---
+
+# NP Variable Importance
+
+* A simple target causal parameter: the average treatment effect (ATE):
+  $$\Psi_g(P_0) = \mathbb{E}_{W}[\mathbb{E}[Y_g \mid A = 1, W_{-g}] - \mathbb{E}[Y_g \mid A = 0, W_{-g}]]$$
+
+* A _nonparametric_ measure of how methylation at CpG sites is impacted by a
+  discrete intervention.
+
+* The choice of target parameter is flexible -- let it be determined by our
+  scientific question of interest.
+
+* We use _targeted minimum loss-based estimation_ (TMLE), for statistical
+  inference in infinite-dimensional statistical models.
+
+* Using TML estimators allows for machine learning to be incorporated into the
+  estimation of nuisance parameters.
+
+???
+
+* _Interpretation:_ The average difference in methylation at CpG site $g$
+  between a setting where all units receive intervention $a_1$ and, possibly
+  contrary-to-fact, the setting where all units receive intervention $a_0$,
+  controlling for possible confounding from neighboring sites.
+
+* By allowing scientific questions to inform the parameters that we choose
+  to estimate, we can do a better job of actually answering the questions of
+  interest to our collaborators. Further, we abandon the need to specify the
+  functional relationship between our outcome and covariates; moreover, we
+  can now make use of advances in machine learning.
+
+---
+
+# TML Estimation
+
+* A simple target causal parameter: the average treatment effect (ATE):
+  $$\Psi_g(P_0) = \mathbb{E}_{W}[\mathbb{E}[Y_g \mid A = 1, W_{-g}] - \mathbb{E}[Y_g \mid A = 0, W_{-g}]]$$
+
+* Efficient Influence Function (EIF) in a nonparametric model:
+  $EIF = h_n(A,W)(Y - Q_n(A,W)) + (Q_n(A = 1, W) - Q_n(A = 0, W) + \Psi_g(P_n^*))$
+    * Auxiliary covariate: $h_n(A, W) = \frac{2 \mathbb{I}(A = 1) - 1}{g_n(A \mid W)}$
+    * Outcome regression: $Q_n := \mathbb{E}[Y \mid A, W]$ (ML?
+      `r emo::ji('thinking')`)
+    * Treatment mechanism: $g_n := \mathbb{E}[A \mid W]$ (ML?
+      `r emo::ji('thinking')`)
+
+* Algorithmically estimate $\Psi_g(P_n^*)$ such that
+  $\frac{1}{n}\sum_{i = 1}^n EIF = 0$.
+
+* Optimal ensemble machine learning (via cross-validation) to estimate nuisance
+  parameters of TML estimators.
+
+---
+
+# Properties of TMLEs
+
+* No need to specify a functional form or make assumptions about the true
+  data-generating process.
+
+* Use ensemble machine learning (through cross-validation) to estimate
+  constituent parts (nuisance parameters) of TML estimators.
+
+* __Asymptotic linearity__ (of NP estimator)**:**
+  $$\Psi_g(P_n^*) - \Psi_g(P_0) = \frac{1}{n} \sum_{i = 1}^{n} \text{EIF} + o_P\left(\frac{1}{\sqrt{n}}\right)$$
+
+* __Limiting distribution:__
+  $$\sqrt{n}(\Psi_g(P_n^*) - \Psi_g(P_0)) \to N(0, \text{Var(EIF)})$$
+
+* __Statistical inference:__
+  $$\Psi_g(P_n^*) \pm z_{(1 - \alpha)} \cdot \sqrt{\frac{\text{Var(EIF)}}{n}}$$
+
+???
+
+Under the additional condition that the remainder term $R(\hat{P}^*, P_0)$
+decays as $o_P \left( \frac{1}{\sqrt{n}} \right)$, we have that
+$\Psi_n - \Psi_0 = (P_n - P_0) \cdot D(P_0) + o_P \left( \frac{1}{\sqrt{n}} \right)$,
+which, by a central limit theorem,
+establishes a Gaussian limiting distribution for the estimator, with variance
+$V(D(P_0))$, the variance of the efficient influence curve (canonical gradient)
+when $\Psi$ admits an asymptotically linear representation.
+
+The above implies that $\Psi_n$ is a $\sqrt{n}$-consistent estimator of $\Psi$,
+that it is asymptotically normal (as given above), and that it is locally
+efficient. This allows us to build Wald-type confidence intervals, where
+$\sigma_n^2$ is an estimator of $V(D(P_0))$. The estimator $\sigma_n^2$
+may be obtained using the bootstrap or computed directly via
+$\sigma_n^2 = \frac{1}{n} \sum_{i = 1}^{n} D^2(\bar{Q}_n^*, g_n)(O_i)$
+
+---
+
+# Multiple Testing `r emo::ji('sad')`
+
+* Multiple testing corrections are critical -- FDR control is common.
+
+* The Benjamini & Hochberg procedure is standard...but we took a shortcut by
+  employing pre-screening.
+
+* Use a modified procedure (FDR-MSA):
+  * Set p-values for all sites screened out to $1.0$.
+  * Append this set of $1$'s to the p-values obtained from the procedure.
+  * Apply the standard Benjamini-Hochberg procedure to this extended set.
+
+* Theory shows that FDR-MSA works exactly like Benjamini-Hochberg for most
+  screening procedures.
+
+???
+
+* Note that $\text{FDR} = \mathbb{E}\left[\frac{V}{R}\right] = \mathbb{E}\left[\frac{V}{R} \mid R > 0 \right] P(R > 0)$.
+
+* BH-FDR procedure: Find $\hat{k} = max\{k: p_{(k)} \leq \frac{k}{M} \cdot \alpha\}$
+
+* FDR-MSA will only incur a loss of power if the initial screening
+  excludes variables that would have been rejected by the BH procedure when
+  applied to the subset on which estimation was performed.
+
+* BH-FDR control is a rank-based procedure, so we must assume that the
+  pre-screening does not disrupt the ranking with respect to the estimation
+  subset, which is provably true for screening procedures of a given type.
+
+* MSA controls type I error with any procedure that is a function of only
+  the type I error itself -- e.g., FWER. This does not hold for the FDR in
+  complete generality.
+
+---
+
+# R/`methyvim`
+
+* Exposes this variable importance methodology for a causal parameter for
+  discrete interventions.
+
+* Soon to support a causal parameter that handles continuous interventions.
+
+* Take it for a test drive!
+
+* Stable release: https://bioconductor.org/packages/methyvim
+
+* Development version: https://github.com/nhejazi/methyvim
+
+* Documentation: https://code.nimahejazi.org/methyvim
+
+???
+
+* Contribute on GitHub: https://github.com/nhejazi/methyvim
+
+* Reach out to us with questions and feature requests.
+
+---
+
+# Future Work
+
+* _F1000_ article on the `methyvim` R package -- imminent.
+
+* Combining DMP estimates (for CpG sites) into estimates and statistical
+  inference for DMR discovery.
+
+* Enhanced interoperability with existing methodology and packages (e.g.,
+  `minfi`, `DelayedArray`).
+
+* Extensions for alternative data types (e.g., RRBS, WGBS).
+
+---
+
+# Acknowledgements `r emo::ji('thanks')`
+
+<u>Science doesn't happen alone</u>:
+
+* University of California, Berkeley:
+  * Advisors: Mark J. van der Laan and Alan E. Hubbard
+  * Colleagues: Rachael V. Phillips
+  * Collaborations: Labs of Martyn T. Smith and Nina T. Holland
+
+* Funding source (NIH):
+  * National Library of Medicine: T32-LM012417-02
+  * National Institute of Environmental Health Sciences: R01 ES021369-05
+  * National Institute of Environmental Health Sciences: P42 ES004705-29
+
+* Many thanks to the organizers for the opportunity to speak
+
+* ...And thank you all for your time
+
+---
+
+# Selected References
+
+```{r, 'refs', results='asis', echo=FALSE}
+PrintBibliography(methyvim_bib)
+```
+
+---
+
+# Review: Summary
+
+* DNA methylation data is  high-dimensional -- we can collect data on 850K
+  genomic sites with modern arrays! (Even more with RRBS, etc.)
+
+* Normalization and QC are critical components of properly analyzing
+  modern DNA methylation data. There are many choices of technique.
+
+* A relative scarcity of techniques for estimation and inference exists
+  -- analyses are often limited to applications of the general linear model.
+
+* Developments in statistical causal inference may be leveraged to answer richer
+  scientific questions about DNA methylation.
+
+* Advances in machine learning may be used to add flexibility to our causal
+  inference approaches.
+
+* __Source:__ https://github.com/nhejazi/talk_methyvim
+
+* __Slides:__ https://bit.ly/bioc_methyvim_2018
+
+???
+
+Hopefully, this all makes a bit more sense now.
+

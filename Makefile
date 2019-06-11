@@ -8,4 +8,3 @@ get :
 
 put :
 	rsync -r --chmod=go+r $(DIRS) $(TARGET)
-
